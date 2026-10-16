@@ -32,6 +32,14 @@ npm install
 npm run dev
 ```
 
+## Tests
+
+```bash
+npm test
+```
+
+The tests cover host claiming and token checks, joining rules, buzzer locking, and the three rounds (9 points, the 4-in-a-row streak reset, the face-à-face win). GitHub Actions typechecks, tests and builds on every push.
+
 Open `http://localhost:3000` on the board device, then join from phones on the same network.
 
 ## Known limitations
