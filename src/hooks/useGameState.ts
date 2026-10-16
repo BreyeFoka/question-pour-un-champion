@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Room } from '@/lib/gameState';
+import { PublicRoom } from '@/lib/gameState';
 
 export function useGameState(roomCode: string) {
-    const [gameState, setGameState] = useState<Room | null>(null);
+    const [gameState, setGameState] = useState<PublicRoom | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {

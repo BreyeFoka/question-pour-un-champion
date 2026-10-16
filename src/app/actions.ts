@@ -1,6 +1,17 @@
 'use server';
 
-import { getRoom, createRoomEntry, notifyRoom, Player } from '@/lib/gameState';
+import { randomUUID } from 'crypto';
+import { getRoom, createRoomEntry, notifyRoom, Player, Room } from '@/lib/gameState';
+
+const MAX_PLAYERS = 10;
+const MAX_TEXT = 40;
+
+/** Host actions only run for the controller that claimed the room. */
+function hostRoom(roomCode: string, hostToken: string): Room | undefined {
+    const room = getRoom(roomCode);
+    if (!room || !room.hostToken || room.hostToken !== hostToken) return undefined;
+    return room;
+}
 
 function generateCode() {
     let result = '';
@@ -10,21 +21,45 @@ function generateCode() {
 }
 
 export async function createRoomAction() {
-    const code = generateCode();
-    // In a real app we'd assign a secure hostToken. For prototype, just use code as token.
-    createRoomEntry(code, code);
+    let code = generateCode();
+    while (getRoom(code)) code = generateCode();
+    createRoomEntry(code);
     return { success: true, roomCode: code };
+}
+
+/**
+ * The first controller to open a room becomes its host and gets a token to keep.
+ * Coming back with that token (e.g. after a reload) works; anyone else is refused.
+ */
+export async function claimHostAction(roomCode: string, existingToken?: string | null) {
+    const room = getRoom(roomCode);
+    if (!room) return { success: false as const, message: 'Plateau introuvable.' };
+
+    if (room.hostToken && existingToken === room.hostToken) {
+        return { success: true as const, hostToken: room.hostToken };
+    }
+    if (room.hostToken) {
+        return { success: false as const, message: 'Un animateur contrôle déjà ce plateau.' };
+    }
+
+    room.hostToken = randomUUID();
+    notifyRoom(room.code);
+    return { success: true as const, hostToken: room.hostToken };
 }
 
 export async function joinRoomAction(roomCode: string, playerName: string, profession: string = "") {
     const room = getRoom(roomCode);
-    if (!room) return { success: false, message: 'Room not found' };
+    if (!room) return { success: false, message: 'Plateau introuvable.' };
 
-    const playerId = Math.random().toString(36).substring(2, 9);
+    const name = playerName.trim().slice(0, MAX_TEXT);
+    if (!name) return { success: false, message: 'Le nom est requis.' };
+    if (room.players.length >= MAX_PLAYERS) return { success: false, message: 'Le plateau est complet.' };
+
+    const playerId = randomUUID();
     const player: Player = {
         id: playerId,
-        name: playerName,
-        profession,
+        name,
+        profession: profession.trim().slice(0, MAX_TEXT),
         score: 0,
         lockedOut: false
     };
@@ -39,6 +74,9 @@ export async function buzzAction(roomCode: string, playerId: string) {
     const room = getRoom(roomCode);
     if (!room) return;
 
+    const player = room.players.find(p => p.id === playerId);
+    if (!player || player.lockedOut) return;
+
     if (!room.buzzerLocked) {
         room.buzzerLocked = true;
         room.firstBuzzer = playerId;
@@ -51,8 +89,8 @@ export async function buzzAction(roomCode: string, playerId: string) {
     }
 }
 
-export async function unlockBuzzersAction(roomCode: string) {
-    const room = getRoom(roomCode);
+export async function unlockBuzzersAction(roomCode: string, hostToken: string) {
+    const room = hostRoom(roomCode, hostToken);
     if (!room) return;
 
     room.buzzerLocked = false;
@@ -64,8 +102,8 @@ export async function unlockBuzzersAction(roomCode: string) {
     notifyRoom(roomCode);
 }
 
-export async function updateScoreAction(roomCode: string, playerId: string, points: number) {
-    const room = getRoom(roomCode);
+export async function updateScoreAction(roomCode: string, hostToken: string, playerId: string, points: number) {
+    const room = hostRoom(roomCode, hostToken);
     if (!room) return;
 
     const player = room.players.find(p => p.id === playerId);
@@ -75,15 +113,15 @@ export async function updateScoreAction(roomCode: string, playerId: string, poin
     }
 }
 
-export async function startTimerAction(roomCode: string, seconds: number) {
-    const room = getRoom(roomCode);
+export async function startTimerAction(roomCode: string, hostToken: string, seconds: number) {
+    const room = hostRoom(roomCode, hostToken);
     if (!room) return;
     room.timerEndsAt = Date.now() + (seconds * 1000);
     notifyRoom(roomCode);
 }
 
-export async function answerValidationAction(roomCode: string, playerId: string, isCorrect: boolean, points: number = 1) {
-    const room = getRoom(roomCode);
+export async function answerValidationAction(roomCode: string, hostToken: string, playerId: string, isCorrect: boolean, points: number = 1) {
+    const room = hostRoom(roomCode, hostToken);
     if (!room) return;
 
     if (isCorrect) {
@@ -120,8 +158,8 @@ export async function answerValidationAction(roomCode: string, playerId: string,
     notifyRoom(roomCode);
 }
 
-export async function changePhaseAction(roomCode: string, phase: string) {
-    const room = getRoom(roomCode);
+export async function changePhaseAction(roomCode: string, hostToken: string, phase: string) {
+    const room = hostRoom(roomCode, hostToken);
     if (!room) return;
 
     room.state = phase;
@@ -138,6 +176,8 @@ export async function changePhaseAction(roomCode: string, phase: string) {
     notifyRoom(roomCode);
 }
 
+// Placeholder question set: returns the same sample questions for any topic.
+// Swap this for an LLM call (topic + players' professions as context) to generate real ones.
 export async function generateMockQAAction(topic: string, players: any[] = []) {
     await new Promise(resolve => setTimeout(resolve, 1500));
     const safeTopic = topic || "Culture Générale";

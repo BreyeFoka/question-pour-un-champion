@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect } from 'react';
 import { useGameState } from '@/hooks/useGameState';
-import { changePhaseAction, unlockBuzzersAction, generateMockQAAction, answerValidationAction, startTimerAction } from '@/app/actions';
+import { changePhaseAction, unlockBuzzersAction, generateMockQAAction, answerValidationAction, startTimerAction, claimHostAction } from '@/app/actions';
 
 export default function HostControllerPage({ params }: { params: Promise<{ roomCode: string }> }) {
     const { roomCode } = use(params);
@@ -14,6 +14,24 @@ export default function HostControllerPage({ params }: { params: Promise<{ roomC
     
     // Global synchronized timer
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+    // Host token: claimed once per room and kept in this browser so a reload stays in control.
+    const [hostToken, setHostToken] = useState<string | null>(null);
+    const [claimError, setClaimError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const key = `qpuc-host-${roomCode.toUpperCase()}`;
+        let saved: string | null = null;
+        try { saved = localStorage.getItem(key); } catch {}
+        claimHostAction(roomCode, saved).then((res) => {
+            if (res.success) {
+                setHostToken(res.hostToken);
+                try { localStorage.setItem(key, res.hostToken); } catch {}
+            } else {
+                setClaimError(res.message);
+            }
+        });
+    }, [roomCode]);
 
     useEffect(() => {
         let interval: any;
@@ -37,15 +55,16 @@ export default function HostControllerPage({ params }: { params: Promise<{ roomC
     };
 
     const handleAnswer = (isCorrect: boolean) => {
-        if (!gameState?.firstBuzzer) return;
-        answerValidationAction(roomCode, gameState.firstBuzzer, isCorrect, 1);
+        if (!gameState?.firstBuzzer || !hostToken) return;
+        answerValidationAction(roomCode, hostToken, gameState.firstBuzzer, isCorrect, 1);
         if (isCorrect && qIndex < questions.length - 1) {
             setQIndex(qIndex + 1);
         }
     };
 
+    if (claimError) return <div style={{ padding: '2rem', color: 'var(--error)' }}>{claimError}</div>;
     if (error) return <div style={{ padding: '2rem', color: 'var(--error)' }}>{error}</div>;
-    if (!gameState) return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--yellow-qpuc)' }}>Connexion au contrôleur...</div>;
+    if (!gameState || !hostToken) return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--yellow-qpuc)' }}>Connexion au contrôleur...</div>;
 
     const buzzedPlayerId = gameState.firstBuzzer;
     const buzzedPlayer = buzzedPlayerId ? gameState.players.find(p => p.id === buzzedPlayerId) : null;
@@ -107,7 +126,7 @@ export default function HostControllerPage({ params }: { params: Promise<{ roomC
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <select 
                                     value={gameState.state} 
-                                    onChange={(e) => changePhaseAction(roomCode, e.target.value)}
+                                    onChange={(e) => changePhaseAction(roomCode, hostToken, e.target.value)}
                                     style={{ flex: 1, padding: '1rem', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', color: 'white', border: 'none', fontSize: '1rem', fontWeight: 'bold' }}
                                 >
                                     <option style={{color:'#000'}} value="Le Neuf points gagnants">Le 9 Points</option>
@@ -119,12 +138,12 @@ export default function HostControllerPage({ params }: { params: Promise<{ roomC
                                 {gameState.state === 'Le Quatre à la suite' && (
                                     <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', padding: '0.5rem', borderRadius: '4px', alignItems: 'center' }}>
                                         <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: timeLeft !== null && timeLeft <= 10 ? 'var(--error)' : 'white' }}>{timeLeft !== null ? timeLeft : 0}s</div>
-                                        <button className="btn" style={{ padding: '0.5rem', fontSize: '1rem' }} onClick={() => startTimerAction(roomCode, 40)}>⟲</button>
+                                        <button className="btn" style={{ padding: '0.5rem', fontSize: '1rem' }} onClick={() => startTimerAction(roomCode, hostToken, 40)}>⟲</button>
                                     </div>
                                 )}
                             </div>
 
-                            <button className="btn" style={{ padding: '1.5rem', fontSize: '1.5rem', backgroundColor: 'var(--yellow-qpuc)', color: 'black' }} onClick={() => unlockBuzzersAction(roomCode)}>
+                            <button className="btn" style={{ padding: '1.5rem', fontSize: '1.5rem', backgroundColor: 'var(--yellow-qpuc)', color: 'black' }} onClick={() => unlockBuzzersAction(roomCode, hostToken)}>
                                 TOP À LA VACHETTE !
                             </button>
                         </>
