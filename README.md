@@ -28,14 +28,14 @@ The three rounds follow the show:
 ## Run it
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ## Tests
 
 ```bash
-npm test
+pnpm test
 ```
 
 The tests cover host claiming and token checks, joining rules, buzzer locking, and the three rounds (9 points, the 4-in-a-row streak reset, the face-à-face win). GitHub Actions typechecks, tests and builds on every push.
